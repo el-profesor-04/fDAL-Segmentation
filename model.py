@@ -102,6 +102,7 @@ class BevEncode(nn.Module):
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.Conv2d(128, outC, kernel_size=1, padding=0),
+            nn.Sigmoid(),
         )
 
     def forward(self, x):
@@ -120,7 +121,7 @@ class BevEncode(nn.Module):
 
 
 class LiftSplatShootFDAL(nn.Module):
-    def __init__(self, grid_conf, data_aug_conf, outC = 1):
+    def __init__(self, grid_conf, data_aug_conf, outC = 2): # num classes 
         super(LiftSplatShootFDAL, self).__init__()
         self.grid_conf = grid_conf
 
@@ -153,6 +154,7 @@ class LiftSplatShootFDAL(nn.Module):
             nn.BatchNorm2d(128),
             nn.LeakyReLU(inplace=True),
             nn.Conv2d(128, outC, kernel_size=1, padding=0),
+            nn.Sigmoid(),
         )
 
         # toggle using QuickCumsum vs. autograd
@@ -276,7 +278,7 @@ class LiftSplatShootFDAL(nn.Module):
         h_prime = self.h_prime(x_before_final_upscale)
         return h, h_prime, x_before_final_upscale # h, h', g
 
-def compile_model(grid_conf, data_aug_conf = None, outC = 1):
+def compile_model(grid_conf, data_aug_conf = None, outC = 2): # num classes 
     return LiftSplatShootFDAL(grid_conf, data_aug_conf, outC)
 
 
