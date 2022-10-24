@@ -228,7 +228,7 @@ def carla_dataloader(
     return train_loader, val_loader
 
 def nuscenes_dataloader(version='trainval',
-            dataroot='../Downloads/nuscenes01',
+            dataroot='/mnt/data/share/nuscenes/v1.0-trainval',
             nepochs=10000,
             gpuid=1,
 
@@ -322,30 +322,38 @@ def seed_all(seed):
     torch.backends.cudnn.benchmark = True  # False
 
 def sample_batch(train_source, train_target, device):
+    train_source_iter = iter(train_source)
+    train_target_iter = iter(train_target)
+    while True:
+        try:
+            (imgs_s, img_segs, rots_s, trans_s, intrins_s, post_rots_s, post_trans_s, binimgs_s) = next(train_source_iter) #carla
+            (imgs_t, rots_t, trans_t, intrins_t, post_rots_t, post_trans_t, binimgs_t, aug_imgs) = next(train_target_iter) #nuscenes
+        except StopIteration:
+            train_source_iter = iter(train_source)
+            train_target_iter = iter(train_target)
+            (imgs_s, img_segs, rots_s, trans_s, intrins_s, post_rots_s, post_trans_s, binimgs_s) = next(train_source_iter) #carla
+            (imgs_t, rots_t, trans_t, intrins_t, post_rots_t, post_trans_t, binimgs_t, aug_imgs) = next(train_target_iter) #nuscenes
+        
+        imgs_s, rots_s, trans_s = imgs_s.to(device), rots_s.to(device), trans_s.to(device)
+        intrins_s, post_rots_s, post_trans_s = intrins_s.to(device), post_rots_s.to(device), post_trans_s.to(device)
+        
+        imgs_t, rots_t, trans_t = imgs_t.to(device), rots_t.to(device), trans_t.to(device)
+        intrins_t, post_rots_t, post_trans_t = intrins_t.to(device), post_rots_t.to(device), post_trans_t.to(device)
 
-    (imgs_s, img_segs, rots_s, trans_s, intrins_s, post_rots_s, post_trans_s, binimgs_s) = next(train_source) #carla
-    (imgs_t, rots_t, trans_t, intrins_t, post_rots_t, post_trans_t, binimgs_t, aug_imgs) = next(train_target) #nuscenes
-    
-    imgs_s, rots_s, trans_s = imgs_s.to(device), rots_s.to(device), trans_s.to(device)
-    intrins_s, post_rots_s, post_trans_s = intrins_s.to(device), post_rots_s.to(device), post_trans_s.to(device)
-    
-    imgs_t, rots_t, trans_t = imgs_t.to(device), rots_t.to(device), trans_t.to(device)
-    intrins_t, post_rots_t, post_trans_t = intrins_t.to(device), post_rots_t.to(device), post_trans_t.to(device)
+        aug_imgs = aug_imgs.to(device)
+        binimgs_s = binimgs_s.long()
+        binimgs_s_c1 = (binimgs_s <= 0).float()
+        #print(binimgs_s.shape, binimgs_s_c1.shape,'shapes bi bc1...')
+        binimgs_s = torch.cat((binimgs_s_c1, binimgs_s),dim=1)
+        #print(binimgs_s.shape,'after concat batch.....')
+        #print(torch.bincount(binimgs_s.flatten()),'label bin......')
 
-    aug_imgs = aug_imgs.to(device)
-    binimgs_s = binimgs_s.long()
-    binimgs_s_c1 = (binimgs_s <= 0).float()
-    #print(binimgs_s.shape, binimgs_s_c1.shape,'shapes bi bc1...')
-    binimgs_s = torch.cat((binimgs_s_c1, binimgs_s),dim=1)
-    #print(binimgs_s.shape,'after concat batch.....')
-    #print(torch.bincount(binimgs_s.flatten()),'label bin......')
+        binimgs_s = binimgs_s.to(device)
 
-    binimgs_s = binimgs_s.to(device)
+        X_s = (imgs_s, rots_s, trans_s, intrins_s, post_rots_s, post_trans_s)
+        X_t = (imgs_t, rots_t, trans_t, intrins_t, post_rots_t, post_trans_t, aug_imgs)
 
-    X_s = (imgs_s, rots_s, trans_s, intrins_s, post_rots_s, post_trans_s)
-    X_t = (imgs_t, rots_t, trans_t, intrins_t, post_rots_t, post_trans_t, aug_imgs)
-
-    return X_s, X_t, binimgs_s
+        yield X_s, X_t, binimgs_s
 
 #############################
 #
@@ -378,9 +386,7 @@ def main(divergence='pearson', n_epochs=4, iter_per_epoch=3000, lr=0.01, wd=0.00
 
     # load the dataloaders.
     train_source, val_source = carla_dataloader()
-    train_source = itertools.cycle(train_source)
     train_target, test_loader = nuscenes_dataloader()
-    train_target = itertools.cycle(train_target)
 
     # define the loss function....
     #taskloss = nn.CrossEntropyLoss(weight=torch.Tensor([1.0,5.0]))
@@ -410,12 +416,13 @@ def main(divergence='pearson', n_epochs=4, iter_per_epoch=3000, lr=0.01, wd=0.00
     #print(model.device,'model device')
     train_step = 1
     print('Starting training...')
+    batch_simpler = iter(sample_batch(train_source, train_target, device))
     for epochs in range(n_epochs):
         learner.train()
         for i in tqdm(range(iter_per_epoch)):
             opt_schedule.step()
             # batch data loading...
-            x_s, x_t, labels_s = sample_batch(train_source, train_target, device)
+            x_s, x_t, labels_s = next(batch_simpler)
             # forward and loss
             loss, others = learner((x_s, x_t), labels_s)
             pred_s = others['pred_s']
