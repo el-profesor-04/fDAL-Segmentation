@@ -6,7 +6,7 @@ import copy
 
 
 class fDALLearner(nn.Module):
-    def __init__(self, model, taskloss, divergence, bootleneck=None, reg_coef=1, n_classes=-1,
+    def __init__(self, model, taskloss, divergence, bootleneck=None, reg_coef=1, n_classes=-1, beta=1.0,
                  grl_params=None):
         """
         fDAL Learner.
@@ -31,6 +31,7 @@ class fDALLearner(nn.Module):
         self.bootleneck = bootleneck
         self.n_classes = n_classes
         self.reg_coeff = reg_coef
+        self.beta = beta
         
 	    #self.auxhead = aux_head if aux_head is not None else self.build_aux_head_()
 
@@ -108,12 +109,11 @@ class fDALLearner(nn.Module):
         #print(outputs_src.shape,y_s.shape,'cross en loss.......')
         #print(y_s,'ys')
         #print(torch.bincount(y_s.flatten()),'ys binct....')
-        beta = 5.0
 
         if self.taskloss == None:
-            task_loss = -torch.mean(beta*y_s*torch.log(outputs_src+0.0001) + (1-y_s)*torch.log(1.0001-outputs_src)) # custom binary cross entropy
+            task_loss = -torch.mean(self.beta * y_s * torch.log(outputs_src+0.0001) + (1-y_s) * torch.log(1.0001-outputs_src)) # custom binary cross entropy
         else:
-            task_loss = self.taskloss(outputs_src, y_s)    
+            task_loss = self.taskloss(outputs_src, y_s)
 
         # task loss in target if labels provided. Warning!. Only on semi-sup adaptation.
         #task_loss += 0.0 if y_t is None else self.taskloss(outputs_tgt, y_t)

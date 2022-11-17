@@ -5,7 +5,6 @@ import torch
 from time import time
 
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter()
 
 from efficientnet_pytorch import EfficientNet
 #from matplotlib import pyplot as plt
@@ -35,8 +34,6 @@ import torch.nn.utils.spectral_norm as sn
 
 from data import compile_data
 import itertools
-
-
 
 def get_camera_info(translation, rotation, sensor_options):
     roll = math.radians(rotation[2] - 90)
@@ -361,19 +358,21 @@ def sample_batch(train_source, train_target, device):
 #
 #
 
-def main(divergence='pearson', n_epochs=4, iter_per_epoch=3000, lr=0.01, wd=0.002, reg_coef=0.5, seed=2):
-
+def main(divergence='pearson', n_epochs=50, iter_per_epoch=3000, lr=0.01, wd=0.002, reg_coef=0.5, beta=5.0, seed=None):
+    print(beta)
+    if seed is None:
+        seed = np.random.randint(2**32)
     seed_all(seed)
-    xbound=[-50.0, 50.0, 0.5]
-    ybound=[-50.0, 50.0, 0.5]
-    zbound=[-10.0, 10.0, 20.0]
-    dbound=[4.0, 45.0, 1.0]
+
+    writer = SummaryWriter(filename_suffix=f"beta_{beta}")
+
     grid_conf = {
-        'xbound': xbound,
-        'ybound': ybound,
-        'zbound': zbound,
-        'dbound': dbound,
+        'xbound': [-50.0, 50.0, 0.5],
+        'ybound': [-50.0, 50.0, 0.5],
+        'zbound': [-10.0, 10.0, 20.0],
+        'dbound': [4.0, 45.0, 1.0],
     }
+
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     #taskhead, aux_head, backbone = compile_model(grid_conf)
@@ -401,7 +400,7 @@ def main(divergence='pearson', n_epochs=4, iter_per_epoch=3000, lr=0.01, wd=0.00
     #                      grl_params={"max_iters": 3000, "hi": 0.6, "auto_step": True}  # ignore for defaults.
     #                      )
 
-    learner = fDALLearner(model, taskloss, divergence=divergence, reg_coef=reg_coef, n_classes = num_classes,
+    learner = fDALLearner(model, taskloss, divergence=divergence, reg_coef=reg_coef, n_classes = num_classes, beta=beta,
 			   grl_params={"max_iters": 3000, "hi": 0.6, "auto_step": True})
 
     #learner = nn.DataParallel(learner)
@@ -445,9 +444,11 @@ def main(divergence='pearson', n_epochs=4, iter_per_epoch=3000, lr=0.01, wd=0.00
                 writer.add_scalar("Loss/Test", val_info['loss'], train_step)
                 writer.add_scalar("IOU/Test", val_info['iou'], train_step)
                 print(f"Epoch:{epochs} nuscenes loss: {val_info['loss']} nuscenes iou: {val_info['iou']}")
+                writer.flush()
             train_step+=1
-    # save the model.
-    torch.save(learner.get_reusable_model(True).state_dict(), './checkpoint.pt')
+        # save the model.
+        torch.save(learner.get_reusable_model(True).state_dict(), f"./checkpoint_beta_{beta}_{epochs}.pt")
+        torch.save(opt.state_dict(), f"./optimizer_beta_{beta}_{epochs}.pt")
     print('done.')
     writer.flush()
     writer.close()
