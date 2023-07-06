@@ -75,12 +75,15 @@ class CarlaDataset(torch.utils.data.Dataset):
         post_trans = []
 
         binimgs = Image.open(os.path.join(self.record_path + "birds_view_semantic_camera", str(idx) + '.png'))
+
+        
         binimgs = binimgs.crop((25, 25, 175, 175))
         binimgs = binimgs.resize((200, 200))
         binimgs = np.array(binimgs)
+        
         binimgs = torch.tensor(binimgs).permute(2, 1, 0)[0]
         binimgs = binimgs[None, :, :]/255
-
+        
         for sensor_name, sensor_info in self.sensors_info['sensors'].items():
             #F: for each image, stores the processed info of its sensors and append all of these
             if sensor_info["sensor_type"] == "sensor.camera.rgb" and sensor_name != "birds_view_camera":
@@ -350,19 +353,22 @@ def sample_batch(train_source, train_target, device):
 
         aug_imgs = aug_imgs.to(device)
 
-        # binimgs_s = binimgs_s.long()
-        # binimgs_s_c1 = (binimgs_s <= 0).float()
-        #print(binimgs_s.shape, binimgs_s_c1.shape,'shapes bi bc1...')
-        # binimgs_s = torch.cat((binimgs_s_c1, binimgs_s),dim=1)
-        #print(binimgs_s.shape,'after concat batch.....')
-        #print(torch.bincount(binimgs_s.flatten()),'label bin......')
+        # from torchvision.utils import save_image
+        # save_image(binimgs_s,'/mnt/data/share/testImage.png')
+ 
+        binimgs_s_c1 = (binimgs_s ==0 ).float()
+
+        binimgs_s = binimgs_s_c1
+
+        # save_image(binimgs_s_c1,'/mnt/data/share/testImage1.png')
+        # save_image(binimgs_s,'/mnt/data/share/testImage2.png') 
 
         binimgs_s = binimgs_s.to(device)
 
         X_s = (imgs_s, rots_s, trans_s, intrins_s, post_rots_s, post_trans_s)
         X_t = (imgs_t, rots_t, trans_t, intrins_t, post_rots_t, post_trans_t, aug_imgs)
 
-        #F: So the X_s and X_t are some stacked infoes of different cameras and binimgs_s is the label of them which is the BEV of them
+        #F: X_s and X_t are some stacked infoes of different cameras and binimgs_s is the label of them which is the BEV of them
         yield X_s, X_t, binimgs_s
 
 #############################
@@ -391,7 +397,7 @@ def main(divergence='pearson', n_epochs=50, iter_per_epoch=3000,
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    backbone = LiftSplatShootFDAL(grid_conf=grid_conf,data_aug_conf=None, outC=5)
+    backbone = LiftSplatShootFDAL(grid_conf=grid_conf,data_aug_conf=None, outC=1)
     taskhead = build_taskhead()
 
     num_classes = 1 # binary seg
@@ -400,12 +406,12 @@ def main(divergence='pearson', n_epochs=50, iter_per_epoch=3000,
     train_source, val_source = carla_dataloader()
     train_target, test_loader = nuscenes_dataloader()
 
-    taskloss = SimpleLoss(beta).to(device)
+    taskloss = SimpleLoss(beta).to(device) #dont use this if you have sigmoid in your nns
     loss_fn = SimpleLoss(pos_weight).to(device)
 
     # model.load_state_dict(torch.load("./checkpoint_beta_5.0_49.pt"))
 
-    learner = fDALLearner(backbone, taskhead, taskloss=taskloss, divergence=divergence, reg_coef=reg_coef, n_classes = num_classes, beta=beta,
+    learner = fDALLearner(backbone, taskhead, taskloss=None, divergence=divergence, reg_coef=reg_coef, n_classes = num_classes, beta=beta,
 			   grl_params={"max_iters": 3000, "hi": 0.6, "auto_step": True})
 
     learner = learner.to(device)

@@ -2,6 +2,6 @@ checkpoint.pt
 
 
 dir_to_ignore/
-env
+myvenv/
 .ipynb_checkpoints
 __pycache__

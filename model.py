@@ -295,8 +295,8 @@ class LiftSplatShootFDAL(nn.Module):
         # h_prime = self.h_prime(x_before_final_upscale)
         return x_before_final_upscale # g
 
-def compile_model(grid_conf, data_aug_conf = None, outC = 1): # num classes 
-    return LiftSplatShootFDAL(grid_conf, data_aug_conf, outC)
+# def compile_model(grid_conf, data_aug_conf = None, outC = 1): # num classes 
+#     return LiftSplatShootFDAL(grid_conf, data_aug_conf, outC)
 
 
 # In[ ]:

@@ -73,13 +73,16 @@ class fDALLearner(nn.Module):
 
         y_s = y
         y_t = None
-
+        
         if isinstance(y, tuple):
             print('y is tuple ????.....')
             # assume y=y_source, y_target, otherwise assume y=y_source
             # warnings.warn_explicit('using target data')
             y_s = y[0]
             y_t = y[1]
+
+        # print(y_s.shape)
+
 
         f = self.backbone(imgs, rots, trans, intrins, post_rots, post_trans)  #g
         #f = self.bootleneck(f) if self.bootleneck is not None else f
@@ -93,12 +96,15 @@ class fDALLearner(nn.Module):
         outputs_src = net_output.narrow(0, 0, src_size)
         outputs_tgt = net_output.narrow(0, src_size, trg_size)
 
+        # print(outputs_src.shape)
+
         if self.taskloss == None:
-            print("that wrong loss calculation")
-            task_loss = -torch.mean(self.beta * y_s * torch.log(outputs_src+0.0001)  # wrong calc
-                              + (1-y_s) * torch.log(1.0001-outputs_src)) # custom binary cross entropy
+            task_loss = -torch.mean(self.beta * y_s * torch.log(outputs_src+0.00001)
+                              + (1-y_s)* torch.log(1.00001-outputs_src)) # custom binary cross entropy
+        
         else:
-            task_loss = self.taskloss(outputs_src, y_s)
+            pass
+            # task_loss = self.taskloss(outputs_src, y_s)
 
         # pseudo loss
         pi = outputs_tgt[:,:,:,:] # it was [:,:,1:,:] which I think is wrong

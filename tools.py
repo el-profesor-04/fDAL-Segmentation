@@ -233,7 +233,7 @@ def get_batch_iou(preds, binimgs):
     """Assumes preds has NOT been sigmoided yet
     """
     with torch.no_grad():
-        pred = (preds > 0)  #if use sigmoid > 0.5
+        pred = (preds > 0.5)  #if use sigmoid > 0.5
         tgt = binimgs.bool()
         intersect = (pred & tgt).sum().float().item()
         union = (pred | tgt).sum().float().item()
