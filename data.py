@@ -242,6 +242,10 @@ class SegmentationData(NuscData):
         imgs, rots, trans, intrins, post_rots, post_trans, aug_imgs = self.get_image_data(rec, cams)
         binimg = self.get_binimg(rec)
         
+        # print("nuscene type", binimg.shape)
+        # from torchvision.utils import save_image
+        # save_image(binimg,'/mnt/data/share/nusImage.png')
+
         return imgs, rots, trans, intrins, post_rots, post_trans, binimg, aug_imgs
 
 
