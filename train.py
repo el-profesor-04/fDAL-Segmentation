@@ -353,12 +353,15 @@ def sample_batch(train_source, train_target, device):
 
         aug_imgs = aug_imgs.to(device)
 
+        # print("binimage size", binimgs_s.shape)
         # from torchvision.utils import save_image
         # save_image(binimgs_s,'/mnt/data/share/testImage.png')
  
         binimgs_s_c1 = (binimgs_s ==0 ).float()
 
         binimgs_s = binimgs_s_c1
+
+        
 
         # save_image(binimgs_s_c1,'/mnt/data/share/testImage1.png')
         # save_image(binimgs_s,'/mnt/data/share/testImage2.png') 
@@ -411,7 +414,7 @@ def main(divergence='pearson', n_epochs=50, iter_per_epoch=3000,
 
     # model.load_state_dict(torch.load("./checkpoint_beta_5.0_49.pt"))
 
-    learner = fDALLearner(backbone, taskhead, taskloss=None, divergence=divergence, reg_coef=reg_coef, n_classes = num_classes, beta=beta,
+    learner = fDALLearner(backbone, taskhead, taskloss=loss_fn, divergence=divergence, reg_coef=reg_coef, n_classes = num_classes, beta=beta,
 			   grl_params={"max_iters": 3000, "hi": 0.6, "auto_step": True})
 
     learner = learner.to(device)
@@ -441,7 +444,7 @@ def main(divergence='pearson', n_epochs=50, iter_per_epoch=3000,
             opt.step()
             if train_step % (100) == 0:
                 _, _, iou = get_batch_iou(pred_s, labels_s)
-                print(f"Epoch:{epochs} Iter:{i}. Task Loss:{others['taskloss']} Train iou:{iou} Total Loss {loss}")
+                print(f"Epoch:{epochs} Iter:{i}. Task Loss:{others['taskloss']} Train iou:{iou}") # Total Loss {loss}")
             
                 writer.add_scalar("Loss/Train", others['taskloss'], train_step)
                 writer.add_scalar("IOU/Train", iou, train_step)
