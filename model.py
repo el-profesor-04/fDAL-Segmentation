@@ -15,7 +15,7 @@ def build_taskhead():
             nn.BatchNorm2d(128),
             nn.LeakyReLU(inplace=True),
             nn.Conv2d(128, outC, kernel_size=1, padding=0),
-            nn.Sigmoid(),
+            # nn.Sigmoid(),
         )
 
     return taskhead
