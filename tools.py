@@ -230,11 +230,14 @@ class SimpleLoss(torch.nn.Module):
 
 
 def get_batch_iou(preds, binimgs):
-    """Assumes preds has NOT been sigmoided yet
-    """
     with torch.no_grad():
-        pred = (preds > 0.5)  #if use sigmoid > 0.5
+        pred = (preds > 0)  #if use sigmoid > 0.5
         tgt = binimgs.bool()
+
+        # from torchvision.utils import save_image
+        # save_image(pred,'/mnt/data/share/testImage.png')
+        # save_image(tgt,'/mnt/data/share/testImage1.png')
+
         intersect = (pred & tgt).sum().float().item()
         union = (pred | tgt).sum().float().item()
     return intersect, union, intersect / union if (union > 0) else 1.0        
@@ -274,10 +277,15 @@ def get_val_info(model, valloader, loss_fn, device, use_tqdm=True):
         for batch in loader:
             allimgs, rots, trans, intrins, post_rots, post_trans, binimgs , _ = batch
             allimgs, rots, trans, intrins, post_rots, post_trans = allimgs.to(device), rots.to(device), trans.to(device), intrins.to(device), post_rots.to(device), post_trans.to(device)
+            
+            # binimgs = (binimgs==0).float() #added 
+
             binimgs = binimgs.to(device)
 
             binpred = model_0(allimgs, rots, trans, intrins, post_rots, post_trans)
             binpred = model_1(binpred)
+
+            # print(binimgs.shape)
 
             # loss
             total_loss += loss_fn(binpred, binimgs).item() * binpred.shape[0]
