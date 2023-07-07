@@ -99,12 +99,12 @@ class fDALLearner(nn.Module):
         # print(outputs_src.shape)
 
         if self.taskloss == None:
-            task_loss = -torch.mean(self.beta * y_s * torch.log(outputs_src+0.00001)
+            task_loss = torch.mean(self.beta * y_s * torch.log(outputs_src+0.00001)
                               + (1-y_s)* torch.log(1.00001-outputs_src)) # custom binary cross entropy
         
         else:
-            pass
-            # task_loss = self.taskloss(outputs_src, y_s)
+            # pass
+            task_loss = self.taskloss(outputs_src, y_s)
 
         # pseudo loss
         pi = outputs_tgt[:,:,:,:] # it was [:,:,1:,:] which I think is wrong
