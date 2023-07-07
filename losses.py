@@ -11,7 +11,7 @@ class fDALLoss(nn.Module):
         self.lhat = None
         self.phistar = None
         self.phistar_gf = None
-        self.multiplier = 1.87  # Modified..... orginally 1.0
+        self.multiplier = 1.  # Modified..... orginally 1.0 then 1.87
         self.internal_stats = {}
         self.domain_discriminator_accuracy = -1
 
@@ -42,4 +42,4 @@ class fDALLoss(nn.Module):
         self.internal_stats['acc'] = self.domain_discriminator_accuracy
         self.internal_stats['dst'] = dst.item()
 
-        return -self.multiplier * dst #multiplier = 1.87
+        return -self.multiplier * dst #multiplier = 1.87 - 1 again
