@@ -14,4 +14,3 @@ What are the current issues:
 2. no style transfer as the paper suggested 
 3. pseudo loss makes some problems
 
-By the way, the iou of target remained steady during the first epoch (I havent run it for more yet)
