@@ -5,6 +5,23 @@ from torchvision.models.resnet import resnet18
 
 from tools import gen_dx_bx, cumsum_trick, QuickCumsum, NormalizeInverse
 
+
+def build_taskhead():
+    outC = 1
+    taskhead = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear',
+                              align_corners=True),
+            nn.Conv2d(256, 128, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(inplace=True),
+            nn.Conv2d(128, outC, kernel_size=1, padding=0),
+            # nn.Sigmoid(),
+        )
+
+    return taskhead
+
+
+
 class Up(nn.Module):
     def __init__(self, in_channels, out_channels, scale_factor=2):
         super().__init__()
@@ -84,7 +101,7 @@ class BevEncode(nn.Module):
     def __init__(self, inC, outC):
         super(BevEncode, self).__init__()
 
-        trunk = resnet18(pretrained=False, zero_init_residual=True)
+        trunk = resnet18(zero_init_residual=True)
         self.conv1 = nn.Conv2d(inC, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn1 = trunk.bn1
@@ -95,15 +112,15 @@ class BevEncode(nn.Module):
         self.layer3 = trunk.layer3
 
         self.up1 = Up(64+256, 256, scale_factor=4)
-        self.up2 = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear',
-                              align_corners=True),
-            nn.Conv2d(256, 128, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, outC, kernel_size=1, padding=0),
-            nn.Sigmoid(),
-        )
+        # self.up2 = nn.Sequential(
+        #     nn.Upsample(scale_factor=2, mode='bilinear',
+        #                       align_corners=True),
+        #     nn.Conv2d(256, 128, kernel_size=3, padding=1, bias=False),
+        #     nn.BatchNorm2d(128),
+        #     nn.ReLU(inplace=True),
+        #     nn.Conv2d(128, outC, kernel_size=1, padding=0),
+        #     # nn.Softmax(),
+        # )
 
     def forward(self, x):
         x = self.conv1(x)
@@ -115,9 +132,9 @@ class BevEncode(nn.Module):
         x = self.layer3(x)
 
         x_before_final_upscale = self.up1(x, x1)
-        x = self.up2(x_before_final_upscale)
+        # x = self.up2(x_before_final_upscale)
 
-        return x, x_before_final_upscale
+        return x_before_final_upscale
 
 
 class LiftSplatShootFDAL(nn.Module):
@@ -147,15 +164,15 @@ class LiftSplatShootFDAL(nn.Module):
         self.camencode = CamEncode(self.D, self.camC, self.downsample)
         self.bevencode = BevEncode(inC=self.camC, outC=outC)
 
-        self.h_prime = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear',
-                              align_corners=True),
-            nn.Conv2d(256, 128, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(inplace=True),
-            nn.Conv2d(128, outC, kernel_size=1, padding=0),
-            nn.Sigmoid(),
-        )
+        # self.h_prime = nn.Sequential(
+        #     nn.Upsample(scale_factor=2, mode='bilinear',
+        #                       align_corners=True),
+        #     nn.Conv2d(256, 128, kernel_size=3, padding=1, bias=False),
+        #     nn.BatchNorm2d(128),
+        #     nn.LeakyReLU(inplace=True),
+        #     nn.Conv2d(128, outC, kernel_size=1, padding=0),
+        #     # nn.Softmax(),
+        # )
 
         # toggle using QuickCumsum vs. autograd
         self.use_quickcumsum = True
@@ -274,16 +291,12 @@ class LiftSplatShootFDAL(nn.Module):
 
     def forward(self, x, rots, trans, intrins, post_rots, post_trans):
         x = self.get_voxels(x, rots, trans, intrins, post_rots, post_trans)
-        h, x_before_final_upscale = self.bevencode(x)
-        h_prime = self.h_prime(x_before_final_upscale)
-        return h, h_prime, x_before_final_upscale # h, h', g
+        x_before_final_upscale = self.bevencode(x)
+        # h_prime = self.h_prime(x_before_final_upscale)
+        return x_before_final_upscale # g
 
-def compile_model(grid_conf, data_aug_conf = None, outC = 2): # num classes 
-    return LiftSplatShootFDAL(grid_conf, data_aug_conf, outC)
+# def compile_model(grid_conf, data_aug_conf = None, outC = 1): # num classes 
+#     return LiftSplatShootFDAL(grid_conf, data_aug_conf, outC)
 
 
 # In[ ]:
-
-
-
-

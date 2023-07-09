@@ -6,8 +6,8 @@ import copy
 
 
 class fDALLearner(nn.Module):
-    def __init__(self, model, taskloss, divergence, bootleneck=None, reg_coef=1, n_classes=-1, beta=1.0,
-                 grl_params=None):
+    def __init__(self, backbone, taskhead, taskloss, divergence, bootleneck=None, reg_coef=1, n_classes=-1, beta=1.0,
+                 grl_params=None, aux_head=None):
         """
         fDAL Learner.
         :param backbone: z=backbone(input). Thus backbone must be nn.Module. (i.e Usually resnet without last f.c layers).
@@ -23,23 +23,21 @@ class fDALLearner(nn.Module):
 	    # model = (h, h', g) == (task head, aux head, backbone)
 
         super(fDALLearner, self).__init__()
-        #self.backbone = backbone
-        #self.taskhead = taskhead
+        self.backbone = backbone
+        self.taskhead = taskhead
         
-        self.model = model
+        # self.model = model
         self.taskloss = taskloss
         self.bootleneck = bootleneck
         self.n_classes = n_classes
         self.reg_coeff = reg_coef
         self.beta = beta
-        
-	    #self.auxhead = aux_head if aux_head is not None else self.build_aux_head_()
-
-        self.fdal_divhead = fDALDivergenceHead(divergence, n_classes=self.n_classes,
+        self.auxhead = aux_head if aux_head is not None else self.build_aux_head_()
+        self.fdal_divhead = fDALDivergenceHead(divergence, self.auxhead, n_classes=self.n_classes,
                                                grl_params=grl_params,
                                                reg_coef=reg_coef)
 
-    '''def build_aux_head_(self):
+    def build_aux_head_(self):
         # fDAL recommends the same architecture for both h, h'
         auxhead = copy.deepcopy(self.taskhead)
         if self.n_classes == -1:
@@ -51,7 +49,7 @@ class fDALLearner(nn.Module):
 
         # different initialization.
         auxhead.apply(lambda self_: self_.reset_parameters() if hasattr(self_, 'reset_parameters') else None)
-        return auxhead'''
+        return auxhead
 
     def forward(self, x, y, src_size=-1, trg_size=-1):
         """
@@ -65,20 +63,17 @@ class fDALLearner(nn.Module):
             # assume x=x_source, x_target
             src_size = x[0][0].shape[0]
             trg_size = x[1][0].shape[0]
-            #print("img shapes",x[0][0].shape,x[1][0].shape,'\n\n')
-            #print(x[0][5].shape,'carla',x[1][5].shape,'nuscenes','before concat..')
-            imgs = torch.cat((x[0][0], x[1][0]), dim=0)
+            imgs = torch.cat((x[0][0], x[1][0]), dim=0)   #F:concat all source and target's input 
             rots = torch.cat((x[0][1], x[1][1]), dim=0)
             trans = torch.cat((x[0][2], x[1][2]), dim=0)
             intrins = torch.cat((x[0][3], x[1][3]), dim=0)
             post_rots = torch.cat((x[0][4], x[1][4]), dim=0)
             post_trans = torch.cat((x[0][5], x[1][5]), dim=0)
             aug_imgs = x[1][6] # for pseudo loss....
-            #print(post_trans.shape,'in fdal learner')
 
         y_s = y
         y_t = None
-
+        
         if isinstance(y, tuple):
             print('y is tuple ????.....')
             # assume y=y_source, y_target, otherwise assume y=y_source
@@ -86,65 +81,54 @@ class fDALLearner(nn.Module):
             y_s = y[0]
             y_t = y[1]
 
-        #f = self.backbone(x, rots, trans, intrins, post_rots, post_trans)
+        # print(y_s.shape)
+
+
+        f = self.backbone(imgs, rots, trans, intrins, post_rots, post_trans)  #g
         #f = self.bootleneck(f) if self.bootleneck is not None else f
 
-        #net_output = self.taskhead(f)
+        net_output = self.taskhead(f) #h
 
         # splitting source and target features
-        #f_source = f.narrow(0, 0, src_size)
-        #f_tgt = f.narrow(0, src_size, trg_size)
+        f_source = f.narrow(0, 0, src_size)
+        f_tgt = f.narrow(0, src_size, trg_size)
 
-        # h(g(x)), h'(g(x)), g(x)......... 
-        net_output, aux_output, backbone_out = self.model(imgs, rots, trans, intrins, post_rots, post_trans)
         outputs_src = net_output.narrow(0, 0, src_size)
         outputs_tgt = net_output.narrow(0, src_size, trg_size)
 
-        #print(outputs_src.shape,'h out shape')
-        #print(aux_output.shape,"h' out shape")
-        # computing losses....
-
-        #print(y_s,'label source...')
-        # task loss in source...
-        #print(outputs_src.shape,y_s.shape,'cross en loss.......')
-        #print(y_s,'ys')
-        #print(torch.bincount(y_s.flatten()),'ys binct....')
+        # print(outputs_src.shape)
 
         if self.taskloss == None:
-            task_loss = -torch.mean(self.beta * y_s * torch.log(outputs_src+0.0001) + (1-y_s) * torch.log(1.0001-outputs_src)) # custom binary cross entropy
+            task_loss = torch.mean(self.beta * y_s * torch.log(outputs_src+0.00001)
+                              + (1-y_s)* torch.log(1.00001-outputs_src)) # custom binary cross entropy
+        
         else:
+            # pass
             task_loss = self.taskloss(outputs_src, y_s)
 
-        # task loss in target if labels provided. Warning!. Only on semi-sup adaptation.
-        #task_loss += 0.0 if y_t is None else self.taskloss(outputs_tgt, y_t)
-
         # pseudo loss
-        #pi = outputs_tgt[:,:,1:,:]
-        #I = (pi >= 0.9).long()
-        
-        #print(aug_imgs.shape, 'aug shape', imgs.shape, 'imgs shape')
-        
-        #aug_h, aug_hprime, _ = self.model(aug_imgs, x[1][1], x[1][2], x[1][3], x[1][4], x[1][5])
-        ##print(torch.min(1-aug_h),'1-augh min...........bef pseudo loss')
-        #paug = aug_h[:,:,1:,:]
-        #pseudo_loss = -torch.mean(beta*I*torch.log(paug+0.001)) + torch.mean(I*torch.log(1.001-paug))
+        pi = outputs_tgt[:,:,:,:] # it was [:,:,1:,:] which I think is wrong
+        I = (pi >= 0.9).long()
+                
+        aug_h= self.backbone(aug_imgs, x[1][1], x[1][2], x[1][3], x[1][4], x[1][5])
+        aug_h = self.taskhead(aug_h) #h
 
-        #print(pseudo_loss,'pseudo loss?????')
+        paug = aug_h[:,:,:,:]
+        pseudo_loss = -torch.mean(self.beta*I*torch.log(paug+0.001)) + torch.mean(I*torch.log(1.001-paug))
+
         fdal_loss = 0.0
         if self.reg_coeff > 0.:
             # adaptation
-            #fdal_loss = self.fdal_divhead(aux_output, outputs_src, outputs_tgt, src_size, trg_size)
+            fdal_loss = self.fdal_divhead(f_source, f_tgt, outputs_src, outputs_tgt)
 
-            # together
-            #print(fdal_loss,'fdal loss\n')
-            total_loss = task_loss #+ fdal_loss + pseudo_loss
+            total_loss = task_loss + fdal_loss #+ pseudo_loss
         else:
             total_loss = task_loss
 
 
-        return total_loss, {"pred_s": outputs_src, "pred_t": outputs_tgt, "taskloss": task_loss}#, "fdal_loss": fdal_loss,
-                            #"fdal_src": self.fdal_divhead.internal_stats["lhatsrc"],
-                            #"fdal_trg": self.fdal_divhead.internal_stats["lhattrg"]}
+        return total_loss, {"pred_s": outputs_src, "pred_t": outputs_tgt, "taskloss": task_loss, "fdal_loss": fdal_loss,
+                            "fdal_src": self.fdal_divhead.internal_stats["lhatsrc"],
+                            "fdal_trg": self.fdal_divhead.internal_stats["lhattrg"]}
 
     def get_reusable_model(self, pack=False):
         """
@@ -155,14 +139,14 @@ class fDALLearner(nn.Module):
 
 	    # model returns h, h', g
 
-        return self.model
-        '''if pack is True:
-            return nn.Sequential(self.backbone, self.taskhead)
-        return self.backbone, self.taskhead'''
+        # return self.model
+        if pack is True:
+            return [self.backbone, self.taskhead]
+            # return [self.taskhead, self.auxhead , self.backbone]
 
 
 class fDALDivergenceHead(nn.Module):
-    def __init__(self, divergence_name, n_classes, grl_params=None, reg_coef=1.):
+    def __init__(self, divergence_name,aux_head, n_classes, grl_params=None, reg_coef=1.):
         """
         :param divergence_name: divergence name (i.e pearson, jensen).
         :param aux_head: the auxiliary head refer to paper fig 1.
@@ -172,13 +156,13 @@ class fDALDivergenceHead(nn.Module):
         """
         super(fDALDivergenceHead, self).__init__()
         self.grl = WarmGRL(auto_step=True) if grl_params is None else WarmGRL(**grl_params)
-        #self.aux_output = aux_output
+        self.aux_head = aux_head
         self.fdal_loss = fDALLoss(divergence_name, gamma=1.0)
         self.internal_stats = self.fdal_loss.internal_stats
         self.n_classes = n_classes
         self.reg_coef = reg_coef
 
-    def forward(self, aux_output, pred_src, pred_trg, src_size, trg_size) -> torch.Tensor:
+    def forward(self, features_s, features_t, pred_src, pred_trg) -> torch.Tensor:
         """
         :param features_s: features extracted by backbone on source data.
         :param features_t: features extracted by backbone on target data.
@@ -187,11 +171,11 @@ class fDALDivergenceHead(nn.Module):
         :return: fdal loss
         """
 
-        #f = self.grl(torch.cat((features_s, features_t), dim=0))
-        #src_size = features_s.shape[0]
-        #trg_size = features_t.shape[0]
+        f = self.grl(torch.cat((features_s, features_t), dim=0))
+        src_size = features_s.shape[0]
+        trg_size = features_t.shape[0]
 
-        aux_output_f = aux_output
+        aux_output_f = self.aux_head(f)
 
         # h'(g(x)) auxiliary head output on source and target respectively.
         y_s_adv = aux_output_f.narrow(0, 0, src_size)

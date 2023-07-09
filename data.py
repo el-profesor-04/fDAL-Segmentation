@@ -160,11 +160,6 @@ class NuscData(torch.utils.data.Dataset):
             trans.append(tran)
             post_rots.append(post_rot)
             post_trans.append(post_tran)
-        #print(len(rots),'in nusc imgs len', torch.stack(rots).shape,'stack shape')
-        #print('nuscenes')
-        #print(torch.stack(rots).shape,torch.stack(trans).shape,torch.stack(intrins).shape,torch.stack(post_rots).shape,torch.stack(post_trans).shape)
-        #print(torch.stack(imgs).shape)
-        #print('nuscenes...............')
 
         # Random augment for pseudo loss 
         RandomAugment = RandAugment()
@@ -247,6 +242,10 @@ class SegmentationData(NuscData):
         imgs, rots, trans, intrins, post_rots, post_trans, aug_imgs = self.get_image_data(rec, cams)
         binimg = self.get_binimg(rec)
         
+        # print("nuscene type", binimg.shape)
+        # from torchvision.utils import save_image
+        # save_image(binimg,'/mnt/data/share/nusImage.png')
+
         return imgs, rots, trans, intrins, post_rots, post_trans, binimg, aug_imgs
 
 

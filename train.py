@@ -15,7 +15,7 @@ import json
 import math
 from transforms3d.euler import euler2mat
 from PIL import Image
-from model import compile_model
+from model import LiftSplatShootFDAL, build_taskhead
 from tools import SimpleLoss, get_batch_iou, normalize_img, img_transform, get_val_info
 
 
@@ -51,7 +51,7 @@ def get_camera_info(translation, rotation, sensor_options):
 
 
 class CarlaDataset(torch.utils.data.Dataset):
-    def __init__(self, record_path, data_aug_conf, ticks):
+    def __init__(self, record_path, data_aug_conf, ticks): #F: a path, a dic and a number which is the number of samples
         self.record_path = record_path
         self.data_aug_conf = data_aug_conf
         self.ticks = ticks
@@ -62,6 +62,9 @@ class CarlaDataset(torch.utils.data.Dataset):
     def __len__(self):
         return self.ticks
 
+    """
+    The __getitem__ function loads and returns a sample from the dataset at the given index idx.
+    """
     def __getitem__(self, idx):
         imgs = []
         img_segs = []
@@ -72,35 +75,41 @@ class CarlaDataset(torch.utils.data.Dataset):
         post_trans = []
 
         binimgs = Image.open(os.path.join(self.record_path + "birds_view_semantic_camera", str(idx) + '.png'))
+
+        
         binimgs = binimgs.crop((25, 25, 175, 175))
         binimgs = binimgs.resize((200, 200))
         binimgs = np.array(binimgs)
+        
         binimgs = torch.tensor(binimgs).permute(2, 1, 0)[0]
         binimgs = binimgs[None, :, :]/255
-
+        
         for sensor_name, sensor_info in self.sensors_info['sensors'].items():
+            #F: for each image, stores the processed info of its sensors and append all of these
             if sensor_info["sensor_type"] == "sensor.camera.rgb" and sensor_name != "birds_view_camera":
                 image = Image.open(os.path.join(self.record_path + sensor_name, str(idx) + '.png'))
                 image_seg = Image.open(os.path.join(self.record_path + sensor_name + "_semantic", str(idx) + '.png'))
+
+                #FQ: what is each folder. For example, back_camera and back_camera_depth and back_camera_semantic
 
                 tran = sensor_info["transform"]["location"]
                 rot = sensor_info["transform"]["rotation"]
                 sensor_options = sensor_info["sensor_options"]
 
-                rot, tran, intrin = get_camera_info(tran, rot, sensor_options)
-                resize, resize_dims, crop, flip, rotate = self.sample_augmentation()
+                rot, tran, intrin = get_camera_info(tran, rot, sensor_options) #F: camera info
+                resize, resize_dims, crop, flip, rotate = self.sample_augmentation() #F: augmentation info
 
                 post_rot = torch.eye(2)
                 post_tran = torch.zeros(2)
 
-                img_seg, _, _ = img_transform(image_seg, post_rot, post_tran,
+                img_seg, _, _ = img_transform(image_seg, post_rot, post_tran,  #F: augments img_seg
                                               resize=resize,
                                               resize_dims=resize_dims,
                                               crop=crop,
                                               flip=flip,
                                               rotate=rotate, )
 
-                img, post_rot2, post_tran2 = img_transform(image, post_rot, post_tran,
+                img, post_rot2, post_tran2 = img_transform(image, post_rot, post_tran, #F: augments img
                                                            resize=resize,
                                                            resize_dims=resize_dims,
                                                            crop=crop,
@@ -131,6 +140,7 @@ class CarlaDataset(torch.utils.data.Dataset):
         #print(torch.stack(imgs).shape)
         #print('carla ......')
 
+        #F: return the appended info of each camera and also binimgs which is the bev view of the img. maybe its label???
         return (torch.stack(imgs).float(), torch.stack(img_segs).float(), torch.stack(rots).float(), torch.stack(trans).float(),
                 torch.stack(intrins).float(), torch.stack(post_rots).float(), torch.stack(post_trans).float(), binimgs.float())
 
@@ -267,10 +277,14 @@ def nuscenes_dataloader(version='trainval',
                     'cams': ['CAM_FRONT_LEFT', 'CAM_FRONT', 'CAM_FRONT_RIGHT',
                              'CAM_BACK_LEFT', 'CAM_BACK', 'CAM_BACK_RIGHT'],
                     'Ncams': ncams,
+
                 }
+    #F: only does that augmentation process for nuscenes data. why not doing for Carla?
+    #F: update: kinda do different augmentation for different datasets.
     trainloader, valloader = compile_data(version, dataroot, data_aug_conf=data_aug_conf,
                                           grid_conf=grid_conf, bsz=bsz, nworkers=nworkers,
                                           parser_name='segmentationdata')
+
 
     return trainloader, valloader
 
@@ -338,18 +352,26 @@ def sample_batch(train_source, train_target, device):
         intrins_t, post_rots_t, post_trans_t = intrins_t.to(device), post_rots_t.to(device), post_trans_t.to(device)
 
         aug_imgs = aug_imgs.to(device)
-        binimgs_s = binimgs_s.long()
-        binimgs_s_c1 = (binimgs_s <= 0).float()
-        #print(binimgs_s.shape, binimgs_s_c1.shape,'shapes bi bc1...')
-        binimgs_s = torch.cat((binimgs_s_c1, binimgs_s),dim=1)
-        #print(binimgs_s.shape,'after concat batch.....')
-        #print(torch.bincount(binimgs_s.flatten()),'label bin......')
+
+        # print("binimage size", binimgs_s.shape)
+        # from torchvision.utils import save_image
+        # save_image(binimgs_s,'/mnt/data/share/testImage.png')
+ 
+        binimgs_s_c1 = (binimgs_s ==0 ).float()
+
+        binimgs_s = binimgs_s_c1
+
+        
+
+        # save_image(binimgs_s_c1,'/mnt/data/share/testImage1.png')
+        # save_image(binimgs_s,'/mnt/data/share/testImage2.png') 
 
         binimgs_s = binimgs_s.to(device)
 
         X_s = (imgs_s, rots_s, trans_s, intrins_s, post_rots_s, post_trans_s)
         X_t = (imgs_t, rots_t, trans_t, intrins_t, post_rots_t, post_trans_t, aug_imgs)
 
+        #F: X_s and X_t are some stacked infoes of different cameras and binimgs_s is the label of them which is the BEV of them
         yield X_s, X_t, binimgs_s
 
 #############################
@@ -358,7 +380,10 @@ def sample_batch(train_source, train_target, device):
 #
 #
 
-def main(divergence='pearson', n_epochs=50, iter_per_epoch=3000, lr=0.01, wd=0.002, reg_coef=0.5, beta=5.0, seed=None):
+def main(divergence='pearson', n_epochs=50, iter_per_epoch=3000,
+          lr=0.01, wd=0.002, reg_coef=0.5, beta=5.0, seed=None,
+          pos_weight=2.13,):
+    
     print(beta)
     if seed is None:
         seed = np.random.randint(2**32)
@@ -375,51 +400,37 @@ def main(divergence='pearson', n_epochs=50, iter_per_epoch=3000, lr=0.01, wd=0.0
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-    #taskhead, aux_head, backbone = compile_model(grid_conf)
-    model = compile_model(grid_conf)
+    backbone = LiftSplatShootFDAL(grid_conf=grid_conf,data_aug_conf=None, outC=1)
+    taskhead = build_taskhead()
 
-    #model.load_state_dict(torch.load('./checkpoint.pt'))
-    #model = model.to(device)
-
-    num_classes = 2 # binary seg
+    num_classes = 1 # binary seg
 
     # load the dataloaders.
     train_source, val_source = carla_dataloader()
     train_target, test_loader = nuscenes_dataloader()
 
-    # define the loss function....
-    #taskloss = nn.CrossEntropyLoss(weight=torch.Tensor([1.0,5.0]))
-    #taskloss = taskloss.to(device)
-    taskloss = None
+    taskloss = SimpleLoss(beta).to(device) #dont use this if you have sigmoid in your nns
+    loss_fn = SimpleLoss(pos_weight).to(device)
 
-    # fDAL ---- [4, 2, 200, 200]
-    #train_target = ForeverDataIterator(train_target)
-    #train_source = ForeverDataIterator(train_source)
+    # model.load_state_dict(torch.load("./checkpoint_beta_5.0_49.pt"))
 
-    #learner = fDALLearner(backbone, taskhead, taskloss, divergence=divergence, reg_coef=reg_coef, n_classes=num_classes,
-    #                      grl_params={"max_iters": 3000, "hi": 0.6, "auto_step": True}  # ignore for defaults.
-    #                      )
-
-    learner = fDALLearner(model, taskloss, divergence=divergence, reg_coef=reg_coef, n_classes = num_classes, beta=beta,
+    learner = fDALLearner(backbone, taskhead, taskloss=loss_fn, divergence=divergence, reg_coef=reg_coef, n_classes = num_classes, beta=beta,
 			   grl_params={"max_iters": 3000, "hi": 0.6, "auto_step": True})
 
-    #learner = nn.DataParallel(learner)
     learner = learner.to(device)
 
     # define the optimizer.
-
     # Hyperparams and scheduler follows CDAN.
     opt = optim.SGD(learner.parameters(), lr=lr, momentum=0.9, nesterov=True, weight_decay=wd)
     opt_schedule = scheduler(opt, lr, decay_step_=iter_per_epoch * n_epochs, gamma_=0.7)
 
-    #print(model.device,'model device')
     train_step = 1
     print('Starting training...')
     batch_simpler = iter(sample_batch(train_source, train_target, device))
-    for epochs in range(n_epochs):
+    for epochs in range(n_epochs):  
         learner.train()
         for i in tqdm(range(iter_per_epoch)):
-            opt_schedule.step()
+            opt_schedule.step()  #F: optimizes the learning rate of the optimizer
             # batch data loading...
             x_s, x_t, labels_s = next(batch_simpler)
             # forward and loss
@@ -431,24 +442,26 @@ def main(divergence='pearson', n_epochs=50, iter_per_epoch=3000, lr=0.01, wd=0.0
             # avoid gradient issues if any early on training.
             torch.nn.utils.clip_grad_norm_(learner.parameters(), 10, error_if_nonfinite = True)
             opt.step()
-            if train_step % (1000) == 0:
+            if train_step % (100) == 0:
                 _, _, iou = get_batch_iou(pred_s, labels_s)
-                print(f"Epoch:{epochs} Iter:{i}. Task Loss:{others['taskloss']} Train iou:{iou} Total Loss {loss}")
-                #print("Epoch",epochs, "train iou:", iou)
+                print(f"Epoch:{epochs} Iter:{i}. Task Loss:{others['taskloss']} Train iou:{iou}") # Total Loss {loss}")
             
                 writer.add_scalar("Loss/Train", others['taskloss'], train_step)
                 writer.add_scalar("IOU/Train", iou, train_step)
             
 
-                val_info = get_val_info(learner.get_reusable_model(True), test_loader, SimpleLoss, device)
+                val_info = get_val_info(learner.get_reusable_model(True), test_loader, loss_fn, device)
                 writer.add_scalar("Loss/Test", val_info['loss'], train_step)
                 writer.add_scalar("IOU/Test", val_info['iou'], train_step)
                 print(f"Epoch:{epochs} nuscenes loss: {val_info['loss']} nuscenes iou: {val_info['iou']}")
                 writer.flush()
             train_step+=1
         # save the model.
-        torch.save(learner.get_reusable_model(True).state_dict(), f"./checkpoint_beta_{beta}_{epochs}.pt")
-        torch.save(opt.state_dict(), f"./optimizer_beta_{beta}_{epochs}.pt")
+        torch.save(learner.get_reusable_model(True)[0].state_dict(), f"saved_models/backbone_beta_{beta}_{epochs}.pt")
+        torch.save(learner.get_reusable_model(True)[1].state_dict(), f"saved_models/taskhead_beta_{beta}_{epochs}.pt")
+        torch.save(opt.state_dict(), f"saved_models/optimizer_beta_{beta}_{epochs}.pt")
+
+
     print('done.')
     writer.flush()
     writer.close()
